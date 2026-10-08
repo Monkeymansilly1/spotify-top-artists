@@ -45,6 +45,16 @@ ol{list-style:none;margin:0;padding:0}
 .welcome a.me:hover b,.welcome a.me:focus-visible b{color:var(--accent);text-decoration:underline}
 .welcome a.me:hover img,.welcome a.me:focus-visible img,.welcome a.me:hover .avatar,.welcome a.me:focus-visible .avatar{outline:3px solid var(--accent)}
 .welcome a.me:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:999px}
+.views{flex-wrap:wrap}
+#share{margin-left:auto;align-self:center;border:2px solid var(--accent);padding:8px 18px}
+#share:disabled{opacity:.6;cursor:wait}
+.genre{display:flex;align-items:center;gap:12px;padding:8px 0}
+.gbody{flex:1;min-width:0}
+.gbody b{display:block;margin-bottom:4px}
+.bar{height:10px;border-radius:999px;background:var(--panel);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.gcount{color:var(--muted);font-size:.9rem;flex:none;width:84px;text-align:right}
+.muted{color:var(--muted)}
 #err{color:#ff8a8a}
 .hide{display:none}
 </style>
@@ -61,6 +71,8 @@ ol{list-style:none;margin:0;padding:0}
     <div class="views" role="group" aria-label="View">
       <button data-v="tracks" class="on">Top tracks</button>
       <button data-v="artists">Top artists</button>
+      <button data-v="genres">Top genres</button>
+      <button id="share" title="Download a shareable image of your top tracks and artists">Share card</button>
     </div>
     <div class="tabs" role="group" aria-label="Time range">
       <button data-r="short_term">Last month</button>
@@ -68,13 +80,14 @@ ol{list-style:none;margin:0;padding:0}
       <button data-r="long_term">Past year</button>
       <button id="logout" aria-label="Log out">Log out</button>
     </div>
-    <div class="counts" role="group" aria-label="Number of results">
+    <div id="counts" class="counts" role="group" aria-label="Number of results">
       <button data-n="10" class="on">Top 10</button>
       <button data-n="25">Top 25</button>
       <button data-n="50">Top 50</button>
     </div>
     <section id="tracks-view"><ol id="tracks"></ol></section>
     <section id="artists-view" class="hide"><div id="artists" class="artists"></div></section>
+    <section id="genres-view" class="hide"><ol id="genres"></ol></section>
   </div>
   <p id="err"></p>
 </main>
@@ -136,6 +149,8 @@ async function load(){
   err("");
   $("#tracks-view").classList.toggle("hide", state.view !== "tracks");
   $("#artists-view").classList.toggle("hide", state.view !== "artists");
+  $("#genres-view").classList.toggle("hide", state.view !== "genres");
+  $("#counts").classList.toggle("hide", state.view === "genres");
   try{
     if(state.view === "tracks"){
       const t = await api(`/me/top/tracks?limit=${state.n}&time_range=${state.range}`);
@@ -145,6 +160,20 @@ async function load(){
           <img src="${x.album.images.at(-2)?.url || ""}" alt="">
           <div><b>${esc(x.name)}</b><span>${esc(x.artists.map(y=>y.name).join(", "))}</span></div>
         </a></li>`).join("");
+    }else if(state.view === "genres"){
+      const a = await api(`/me/top/artists?limit=50&time_range=${state.range}`);
+      const g = genreCounts(a.items).slice(0,10);
+      if(!g.length){
+        $("#genres").innerHTML = '<li class="muted">No genre data available for this period.</li>';
+      }else{
+        const max = g[0][1];
+        $("#genres").innerHTML = g.map(([n,c],i)=>`
+          <li class="genre">
+            <span class="rank">${i+1}</span>
+            <div class="gbody"><b>${esc(titleCase(n))}</b><div class="bar"><i style="width:${Math.max(6, c/max*100)}%"></i></div></div>
+            <span class="gcount">${c} artist${c===1?"":"s"}</span>
+          </li>`).join("");
+      }
     }else{
       const a = await api(`/me/top/artists?limit=${state.n}&time_range=${state.range}`);
       $("#artists").innerHTML = a.items.map((x,i)=>`
@@ -159,6 +188,7 @@ async function loadProfile(){
   try{
     const me = await api("/me");
     const name = me.display_name || me.id || "there";
+    state.name = name;
     const pic = me.images?.[0]?.url;
     const url = me.external_urls?.spotify || ("https://open.spotify.com/user/" + encodeURIComponent(me.id));
     $("#welcome").innerHTML =
@@ -167,6 +197,108 @@ async function loadProfile(){
       `<p>Welcome, <b>${esc(name)}</b></p></a>`;
     $("#welcome").classList.remove("hide");
   }catch(e){ /* welcome banner is optional; ignore failures */ }
+}
+
+const titleCase = g => g.replace(/\b\w/g, c => c.toUpperCase());
+function genreCounts(artists){
+  const m = new Map();
+  artists.forEach(x => (x.genres || []).forEach(g => m.set(g, (m.get(g) || 0) + 1)));
+  return [...m].sort((a,b) => b[1] - a[1]); // ties keep higher-ranked artist's genre first
+}
+
+const RANGE_LABEL = {short_term: "Last month", medium_term: "Last 6 months", long_term: "Past year"};
+
+async function shareCard(){
+  const btn = $("#share"), old = btn.textContent;
+  btn.disabled = true; btn.textContent = "Making card…"; err("");
+  try{
+    await Promise.all([
+      document.fonts.load('800 40px "Bricolage Grotesque"'),
+      document.fonts.load('700 36px "Bricolage Grotesque"'),
+      document.fonts.load('400 28px "Bricolage Grotesque"')
+    ]).catch(()=>{});
+    const [t, a] = await Promise.all([
+      api(`/me/top/tracks?limit=5&time_range=${state.range}`),
+      api(`/me/top/artists?limit=50&time_range=${state.range}`)
+    ]);
+    const loadImg = u => new Promise(res => {
+      if(!u) return res(null);
+      const i = new Image(); i.crossOrigin = "anonymous";
+      i.onload = () => res(i); i.onerror = () => res(null); i.src = u;
+    });
+    const top5 = a.items.slice(0,5);
+    const [tImgs, aImgs] = await Promise.all([
+      Promise.all(t.items.map(x => loadImg(x.album.images.at(-2)?.url || x.album.images[0]?.url))),
+      Promise.all(top5.map(x => loadImg(x.images.at(-2)?.url || x.images[0]?.url)))
+    ]);
+
+    const W = 1080, H = 1350, F = '"Bricolage Grotesque", system-ui, sans-serif';
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    const fit = (txt, maxW) => {
+      if(g.measureText(txt).width <= maxW) return txt;
+      while(txt.length > 1 && g.measureText(txt + "…").width > maxW) txt = txt.slice(0,-1);
+      return txt + "…";
+    };
+    const rr = (x,y,w,h,r) => { g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); };
+
+    // background
+    const bg = g.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,"#000"); bg.addColorStop(.45,"#04150c"); bg.addColorStop(1,"#0d6b33");
+    g.fillStyle = bg; g.fillRect(0,0,W,H);
+
+    // header
+    g.textBaseline = "alphabetic"; g.textAlign = "left";
+    g.fillStyle = "#eafff2"; g.font = `800 84px ${F}`; g.fillText("My top Spotify", 72, 150);
+    g.fillStyle = "#8fbfa4"; g.font = `400 34px ${F}`;
+    g.fillText(fit(RANGE_LABEL[state.range] + (state.name ? " · " + state.name : ""), W-144), 72, 208);
+
+    // tracks
+    g.fillStyle = "#1ed760"; g.font = `800 40px ${F}`; g.fillText("Top tracks", 72, 300);
+    t.items.forEach((x,i) => {
+      const y = 330 + i*112;
+      g.fillStyle = "#1ed760"; g.font = `800 40px ${F}`; g.textAlign = "right";
+      g.fillText(String(i+1), 108, y+58); g.textAlign = "left";
+      g.save(); rr(130, y, 92, 92, 8); g.clip();
+      if(tImgs[i]) g.drawImage(tImgs[i], 130, y, 92, 92);
+      else { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(130, y, 92, 92); }
+      g.restore();
+      g.fillStyle = "#eafff2"; g.font = `700 36px ${F}`;
+      g.fillText(fit(x.name, 770), 244, y+40);
+      g.fillStyle = "#8fbfa4"; g.font = `400 28px ${F}`;
+      g.fillText(fit(x.artists.map(y=>y.name).join(", "), 770), 244, y+78);
+    });
+
+    // artists
+    g.fillStyle = "#1ed760"; g.font = `800 40px ${F}`; g.fillText("Top artists", 72, 960);
+    const D = 160, gap = (W - 144 - D*5) / 4;
+    top5.forEach((x,i) => {
+      const cx = 72 + i*(D+gap) + D/2, cy = 1000 + D/2;
+      g.save(); g.beginPath(); g.arc(cx, cy, D/2, 0, Math.PI*2); g.closePath(); g.clip();
+      if(aImgs[i]) g.drawImage(aImgs[i], cx-D/2, cy-D/2, D, D);
+      else { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(cx-D/2, cy-D/2, D, D); }
+      g.restore();
+      g.fillStyle = "#eafff2"; g.font = `700 26px ${F}`; g.textAlign = "center";
+      g.fillText(fit(x.name, D+gap-8), cx, cy + D/2 + 38);
+    });
+
+    // genres
+    const gen = genreCounts(a.items).slice(0,3).map(([n]) => titleCase(n));
+    if(gen.length){
+      g.textAlign = "left"; g.fillStyle = "#1ed760"; g.font = `800 32px ${F}`; g.fillText("Top genres", 72, 1290);
+      g.fillStyle = "#8fbfa4"; g.font = `400 30px ${F}`;
+      g.fillText(fit(gen.join(" · "), W-144-210), 72+210, 1290);
+    }
+
+    const blob = await new Promise(res => c.toBlob(res, "image/png"));
+    if(!blob) throw new Error("Couldn't create the image");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "my-top-spotify.png";
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }catch(e){ err(e.message); }
+  finally{ btn.disabled = false; btn.textContent = old; }
 }
 
 function pick(selector, key, attr, parse){
@@ -182,6 +314,7 @@ pick(".tabs button[data-r]", "range", "r", v => v);
 pick(".counts button", "n", "n", Number);
 
 $("#login").onclick = login;
+$("#share").onclick = shareCard;
 $("#logout").onclick = () => {
   sessionStorage.removeItem("token");
   sessionStorage.removeItem("verifier");
