@@ -182,7 +182,7 @@ async function load(){
       $("#tracks").innerHTML = t.items.map((x,i)=>`
         <li class="track" data-uri="${x.uri}" data-preview="${x.preview_url || ''}">
           <div style="display:flex;align-items:center;gap:12px">
-            <button class="preview-btn" ${x.preview_url? 'aria-label="Play preview"':'aria-disabled="true" disabled'}>
+            <button class="preview-btn" title="${x.preview_url ? 'Play 30-second preview' : 'No preview available for this track'}" ${x.preview_url? 'aria-label="Play 30-second preview"':'aria-label="Preview unavailable" aria-disabled="true" disabled'}>
               <span class="preview-icon play"></span>
             </button>
             <a href="${x.external_urls.spotify}" target="_blank" rel="noopener">
@@ -221,9 +221,10 @@ async function load(){
 
 function attachPreviewHandlers(){
   const audio = $("#preview-audio");
-  // ensure sensible audio attributes
+  // Reset playback whenever the displayed track list changes.
   audio.pause();
-  audio.src = "";
+  audio.removeAttribute("src");
+  audio.load();
   audio.crossOrigin = "anonymous";
   audio.preload = "none";
   audio.volume = 0.95;
@@ -236,11 +237,23 @@ function attachPreviewHandlers(){
     });
   }
 
-  audio.removeEventListener('pause', resetPreviewButtons);
-  audio.removeEventListener('ended', resetPreviewButtons);
-  audio.addEventListener('pause', resetPreviewButtons);
-  audio.addEventListener('ended', resetPreviewButtons);
-  audio.addEventListener('error', () => { err('Preview failed to load or play.'); console.debug('Audio error', audio.error); });
+  // Assign handlers instead of adding a new listener every time the list reloads.
+  audio.onpause = resetPreviewButtons;
+  audio.onended = resetPreviewButtons;
+  audio.onerror = () => {
+    if(audio.currentSrc) err('This preview could not be loaded. Try opening the track on Spotify.');
+    resetPreviewButtons();
+  };
+  audio.ontimeupdate = () => {
+    // Enforce the requested 30-second preview limit, even if a source is longer.
+    if(audio.currentTime >= 30){
+      audio.pause();
+      audio.currentTime = 0;
+      audio.removeAttribute("src");
+      audio.load();
+      resetPreviewButtons();
+    }
+  };
 
   document.querySelectorAll('.preview-btn').forEach(b => {
     b.onclick = async (ev) => {
@@ -248,26 +261,31 @@ function attachPreviewHandlers(){
       ev.stopPropagation();
       err("");
       const li = b.closest('.track');
-      const url = li.dataset.preview;
+      const url = li?.dataset.preview;
       if(!url) return;
-      // if this button is already playing, pause
+
       const isPlaying = b.classList.contains('playing');
-      // reset all buttons
       resetPreviewButtons();
-      if(isPlaying){ audio.pause(); audio.src = ""; return; }
-      // set audio
+      if(isPlaying){
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+        return;
+      }
+
+      audio.pause();
       audio.src = url;
       audio.currentTime = 0;
       try{
         await audio.play();
+        b.classList.add('playing');
+        const ic = b.querySelector('.preview-icon');
+        if(ic){ ic.classList.remove('play'); ic.classList.add('pause'); }
       }catch(e){
         console.debug('play() failed', e);
-        err('Could not play preview — your browser may block autoplay or the preview failed to load.');
-        return;
+        err('Could not play this preview. The clip may no longer be available; try opening the track on Spotify.');
+        resetPreviewButtons();
       }
-      // mark button
-      b.classList.add('playing');
-      const ic = b.querySelector('.preview-icon'); if(ic){ ic.classList.remove('play'); ic.classList.add('pause'); }
     };
   });
 }
