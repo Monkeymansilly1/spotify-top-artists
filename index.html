@@ -104,7 +104,8 @@ ol{list-style:none;margin:0;padding:0}
   <p id="err"></p>
 </main>
 
-<audio id="preview-audio" class="hide"></audio>
+<!-- audio element used for previews. crossorigin and preload help with fetching and playback -->
+<audio id="preview-audio" class="hide" crossorigin="anonymous" preload="none"></audio>
 
 <script>
 // 1. Paste your Client ID from developer.spotify.com/dashboard
@@ -216,26 +217,53 @@ async function load(){
 
 function attachPreviewHandlers(){
   const audio = $("#preview-audio");
-  audio.pause(); audio.src = "";
+  // ensure sensible audio attributes
+  audio.pause();
+  audio.src = "";
+  audio.crossOrigin = "anonymous";
+  audio.preload = "none";
+  audio.volume = 0.95;
+
+  function resetPreviewButtons(){
+    document.querySelectorAll('.preview-btn').forEach(x => {
+      x.classList.remove('playing');
+      const ic = x.querySelector('.preview-icon');
+      if(ic){ ic.classList.remove('pause'); ic.classList.add('play'); }
+    });
+  }
+
+  audio.removeEventListener('pause', resetPreviewButtons);
+  audio.removeEventListener('ended', resetPreviewButtons);
+  audio.addEventListener('pause', resetPreviewButtons);
+  audio.addEventListener('ended', resetPreviewButtons);
+  audio.addEventListener('error', () => { err('Preview failed to load or play.'); console.debug('Audio error', audio.error); });
+
   document.querySelectorAll('.preview-btn').forEach(b => {
     b.onclick = async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      err("");
       const li = b.closest('.track');
       const url = li.dataset.preview;
       if(!url) return;
       // if this button is already playing, pause
       const isPlaying = b.classList.contains('playing');
       // reset all buttons
-      document.querySelectorAll('.preview-btn').forEach(x => { x.classList.remove('playing'); const ic = x.querySelector('.preview-icon'); if(ic){ ic.classList.remove('pause'); ic.classList.add('play'); } });
+      resetPreviewButtons();
       if(isPlaying){ audio.pause(); audio.src = ""; return; }
       // set audio
-      audio.src = url; audio.currentTime = 0; try{ await audio.play(); }catch(e){ err('Could not play preview — your browser may block autoplay.'); }
+      audio.src = url;
+      audio.currentTime = 0;
+      try{
+        await audio.play();
+      }catch(e){
+        console.debug('play() failed', e);
+        err('Could not play preview — your browser may block autoplay or the preview failed to load.');
+        return;
+      }
       // mark button
-      b.classList.add('playing'); const ic = b.querySelector('.preview-icon'); if(ic){ ic.classList.remove('play'); ic.classList.add('pause'); }
-      // when audio ends, reset button
-      const onEnd = () => { b.classList.remove('playing'); if(ic){ ic.classList.remove('pause'); ic.classList.add('play'); } audio.removeEventListener('ended', onEnd); };
-      audio.addEventListener('ended', onEnd);
+      b.classList.add('playing');
+      const ic = b.querySelector('.preview-icon'); if(ic){ ic.classList.remove('play'); ic.classList.add('pause'); }
     };
   });
 }
