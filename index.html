@@ -59,9 +59,10 @@ ol{list-style:none;margin:0;padding:0}
 #err{color:#ff8a8a}
 .hide{display:none}
 /* preview button */
-.preview-btn{width:44px;height:44px;flex:none;border-radius:8px;background:rgba(255,255,255,.06);display:grid;place-items:center;margin-right:8px}
+.preview-btn{width:44px;height:44px;flex:none;border-radius:8px;background:rgba(255,255,255,.06);display:grid;place-items:center;margin-right:8px;cursor:pointer}
 .preview-btn.playing{background:var(--accent);color:#000}
-.preview-btn[disabled]{opacity:.4;cursor:not-allowed}
+/* explicitly set disabled cursor to default so users don't see the X/cross */
+.preview-btn[disabled], .preview-btn[aria-disabled="true"]{opacity:.4;cursor:default}
 .preview-icon{width:14px;height:14px;display:inline-block}
 .preview-icon.play{background:linear-gradient(90deg,#000 0%,#000 100%);clip-path:polygon(0 0,100% 50%,0 100%);}
 .preview-icon.pause{width:12px;height:14px;background:linear-gradient(#000,#000);display:block;position:relative}
