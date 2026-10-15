@@ -202,9 +202,13 @@ async function load(){
       attachPreviewHandlers();
     }else if(state.view === "genres"){
       const a = await api(`/me/top/artists?limit=50&time_range=${state.range}`);
-      const g = genreCounts(a.items).slice(0,state.n);
+      // The top-artists response may omit the deprecated genres field. Try
+      // fetching each artist's full catalog record, with a small concurrency
+      // limit to avoid sending 50 requests at once.
+      const artistsWithGenres = await loadArtistGenres(a.items);
+      const g = genreCounts(artistsWithGenres).slice(0,state.n);
       if(!g.length){
-        $("#genres").innerHTML = '<li class="muted">No genre data available for this period.</li>';
+        $("#genres").innerHTML = '<li class="muted">Spotify isn’t returning genre data for these artists right now. Spotify has deprecated this field, so it may be unavailable for some accounts or artists.</li>';
       }else{
         const max = g[0][1];
         $("#genres").innerHTML = g.map(([n,c],i)=>`
@@ -319,6 +323,25 @@ async function loadProfile(){
 }
 
 const titleCase = g => g.replace(/\b\w/g, c => c.toUpperCase());
+async function loadArtistGenres(artists){
+  const result = [];
+  const batchSize = 5;
+  for(let i=0;i<artists.length;i+=batchSize){
+    const batch = artists.slice(i,i+batchSize);
+    const details = await Promise.all(batch.map(async artist => {
+      // Keep any genre tags supplied by the top-items endpoint as a fallback.
+      try{
+        const full = await api(`/artists/${encodeURIComponent(artist.id)}`);
+        return Object.assign({}, artist, {genres: full.genres || artist.genres || []});
+      }catch(e){
+        return artist;
+      }
+    }));
+    result.push(...details);
+  }
+  return result;
+}
+
 function genreCounts(artists){
   const m = new Map();
   artists.forEach(x => (x.genres || []).forEach(g => m.set(g, (m.get(g) || 0) + 1)));
