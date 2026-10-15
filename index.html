@@ -58,6 +58,9 @@ ol{list-style:none;margin:0;padding:0}
 .muted{color:var(--muted)}
 #err{color:#ff8a8a}
 .hide{display:none}
+/* Spotify's official embedded player, shown when a track's play button is clicked */
+.spotify-embed{margin:10px 0 8px 60px;max-width:420px}
+.spotify-embed iframe{display:block;max-width:100%}
 /* preview button */
 .preview-btn{width:44px;height:44px;flex:none;border-radius:8px;background:rgba(255,255,255,.06);display:grid;place-items:center;margin-right:8px;cursor:pointer}
 .preview-btn.playing{background:var(--accent);color:#000}
@@ -108,7 +111,7 @@ ol{list-style:none;margin:0;padding:0}
   <p id="err"></p>
 </main>
 
-<!-- audio element used for previews. crossorigin and preload help with fetching and playback -->
+<!-- Kept for compatibility with the existing page; playback uses Spotify's official embed below. -->
 <audio id="preview-audio" class="hide" crossorigin="anonymous" preload="none"></audio>
 
 <script>
@@ -180,9 +183,9 @@ async function load(){
       const t = await api(`/me/top/tracks?limit=${state.n}&time_range=${state.range}`);
       // include preview button (uses shared audio element)
       $("#tracks").innerHTML = t.items.map((x,i)=>`
-        <li class="track" data-uri="${x.uri}" data-preview="${x.preview_url || ''}">
+        <li class="track" data-uri="${x.uri}" data-track-id="${x.id}">
           <div style="display:flex;align-items:center;gap:12px">
-            <button class="preview-btn" title="${x.preview_url ? 'Play 30-second preview' : 'No preview available for this track'}" ${x.preview_url? 'aria-label="Play 30-second preview"':'aria-label="Preview unavailable" aria-disabled="true" disabled'}>
+            <button class="preview-btn" type="button" title="Open Spotify player" aria-label="Open Spotify player for ${esc(x.name)}">
               <span class="preview-icon play"></span>
             </button>
             <a href="${x.external_urls.spotify}" target="_blank" rel="noopener">
@@ -191,6 +194,7 @@ async function load(){
               <div><b>${esc(x.name)}</b><span>${esc(x.artists.map(y=>y.name).join(", "))}</span></div>
             </a>
           </div>
+          <div class="spotify-embed hide"></div>
         </li>`).join("");
 
       // attach preview handlers
@@ -220,76 +224,52 @@ async function load(){
 }
 
 function attachPreviewHandlers(){
-  const audio = $("#preview-audio");
-  // Reset playback whenever the displayed track list changes.
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.load();
-  audio.crossOrigin = "anonymous";
-  audio.preload = "none";
-  audio.volume = 0.95;
-
-  function resetPreviewButtons(){
-    document.querySelectorAll('.preview-btn').forEach(x => {
-      x.classList.remove('playing');
-      const ic = x.querySelector('.preview-icon');
-      if(ic){ ic.classList.remove('pause'); ic.classList.add('play'); }
-    });
-  }
-
-  // Assign handlers instead of adding a new listener every time the list reloads.
-  audio.onpause = resetPreviewButtons;
-  audio.onended = resetPreviewButtons;
-  audio.onerror = () => {
-    if(audio.currentSrc) err('This preview could not be loaded. Try opening the track on Spotify.');
-    resetPreviewButtons();
-  };
-  audio.ontimeupdate = () => {
-    // Enforce the requested 30-second preview limit, even if a source is longer.
-    if(audio.currentTime >= 30){
-      audio.pause();
-      audio.currentTime = 0;
-      audio.removeAttribute("src");
-      audio.load();
-      resetPreviewButtons();
-    }
-  };
-
-  document.querySelectorAll('.preview-btn').forEach(b => {
-    b.onclick = async (ev) => {
+  // Spotify no longer supplies preview_url for many tracks. Use Spotify's
+  // official track embed instead of attempting to play a missing audio URL.
+  document.querySelectorAll('#tracks .preview-btn').forEach(button => {
+    button.onclick = (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
       err("");
-      const li = b.closest('.track');
-      const url = li?.dataset.preview;
-      if(!url) return;
-
-      const isPlaying = b.classList.contains('playing');
-      resetPreviewButtons();
-      if(isPlaying){
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
+      const li = button.closest('.track');
+      const holder = li?.querySelector('.spotify-embed');
+      const trackId = li?.dataset.trackId;
+      if(!holder || !trackId) {
+        err('Could not open the Spotify player for this track.');
         return;
       }
 
-      audio.pause();
-      audio.src = url;
-      audio.currentTime = 0;
-      try{
-        await audio.play();
-        b.classList.add('playing');
-        const ic = b.querySelector('.preview-icon');
-        if(ic){ ic.classList.remove('play'); ic.classList.add('pause'); }
-      }catch(e){
-        console.debug('play() failed', e);
-        err('Could not play this preview. The clip may no longer be available; try opening the track on Spotify.');
-        resetPreviewButtons();
-      }
+      const alreadyOpen = !holder.classList.contains('hide');
+      // Close any other embedded player to keep the page compact.
+      document.querySelectorAll('#tracks .spotify-embed').forEach(el => {
+        el.classList.add('hide');
+        el.innerHTML = '';
+      });
+      document.querySelectorAll('#tracks .preview-btn').forEach(el => {
+        el.classList.remove('playing');
+        const icon = el.querySelector('.preview-icon');
+        if(icon){ icon.classList.remove('pause'); icon.classList.add('play'); }
+      });
+      if(alreadyOpen) return;
+
+      const frame = document.createElement('iframe');
+      frame.title = 'Spotify player';
+      frame.src = 'https://open.spotify.com/embed/track/' + encodeURIComponent(trackId) + '?utm_source=generator&theme=0';
+      frame.width = '100%';
+      frame.height = '152';
+      frame.style.border = '0';
+      frame.style.borderRadius = '12px';
+      frame.allow = 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture';
+      frame.loading = 'lazy';
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      holder.appendChild(frame);
+      holder.classList.remove('hide');
+      button.classList.add('playing');
+      const icon = button.querySelector('.preview-icon');
+      if(icon){ icon.classList.remove('play'); icon.classList.add('pause'); }
     };
   });
 }
-
 async function createPlaylist(){
   err("");
   const btn = $("#create-playlist");
