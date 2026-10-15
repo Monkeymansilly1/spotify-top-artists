@@ -64,10 +64,14 @@ ol{list-style:none;margin:0;padding:0}
 /* explicitly set disabled cursor to default so users don't see the X/cross */
 .preview-btn[disabled], .preview-btn[aria-disabled="true"]{opacity:.4;cursor:default}
 .preview-icon{width:14px;height:14px;display:inline-block}
-.preview-icon.play{background:linear-gradient(90deg,#000 0%,#000 100%);clip-path:polygon(0 0,100% 50%,0 100%);}
-.preview-icon.pause{width:12px;height:14px;background:linear-gradient(#000,#000);display:block;position:relative}
-.preview-icon.pause:before{content:'';position:absolute;left:0;top:0;width:4px;height:100%;background:#000}
-.preview-icon.pause:after{content:'';position:absolute;right:0;top:0;width:4px;height:100%;background:#000}
+/* make the play icon white for better visibility */
+.preview-icon.play{background:#fff;clip-path:polygon(0 0,100% 50%,0 100%);}
+.preview-icon.pause{width:12px;height:14px;background:transparent;display:block;position:relative}
+.preview-icon.pause:before{content:'';position:absolute;left:0;top:0;width:4px;height:100%;background:#fff}
+.preview-icon.pause:after{content:'';position:absolute;right:0;top:0;width:4px;height:100%;background:#fff}
+/* when the button is in the playing state (green bg), show pause bars in black for contrast */
+.preview-btn.playing .preview-icon.pause:before{background:#000}
+.preview-btn.playing .preview-icon.pause:after{background:#000}
 </style>
 </head>
 <body>
