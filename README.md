@@ -26,3 +26,7 @@ If Spotify authorization permissions change, use Log out followed by Log in agai
 ## Login and refresh behaviour
 
 A Spotify 401 response no longer refreshes the whole page. Instead, the app shows the login screen and asks you to authenticate again. On the first page load, the app waits until the listening-insights script is ready and fetches the user ID once before rendering statistics.
+
+## Automatic genre detection
+
+On **Top genres**, select **Detect genres for top 10 artists**. The app searches the public MusicBrainz artist database and classifies its genre and community tag metadata into broad genres. Requests are queued to respect MusicBrainz rate limiting, and results are cached on your device for 30 days. Spotify's genres, if provided, take precedence; your manually selected genre overrides both. Missing or ambiguous matches are left unclassified rather than invented. This is a metadata-driven classifier, **not a large language model**. Running a private AI model would require a secure backend, which this GitHub Pages app does not have. Public third-party services will see the searched artist names (not your Spotify login token).
