@@ -160,7 +160,7 @@ async function getToken(code){
 async function api(path, opts = {}){
   const headers = Object.assign({Authorization: "Bearer " + sessionStorage.getItem("token")}, opts.headers || {});
   const r = await fetch("https://api.spotify.com/v1" + path, Object.assign({}, opts, {headers}));
-  if(r.status === 401){ sessionStorage.removeItem("token"); location.reload(); }
+  if(r.status === 401){ sessionStorage.removeItem("token"); $("#app").classList.add("hide"); $("#login-view").classList.remove("hide"); throw new Error("Your Spotify login expired. Please log in again."); }
   if(!r.ok){
     const errBody = await r.json().catch(()=>({}));
     const msg = errBody.error && errBody.error.message ? (errBody.error.message + " ("+r.status+")") : ("Spotify API error " + r.status);
@@ -464,7 +464,7 @@ $("#logout").onclick = () => {
   location.href = REDIRECT;
 };
 
-(async () => {
+window.addEventListener("DOMContentLoaded", async () => {
   const code = new URLSearchParams(location.search).get("code");
   try{
     if(code){
@@ -474,11 +474,12 @@ $("#logout").onclick = () => {
     if(sessionStorage.getItem("token")){
       $("#login-view").classList.add("hide");
       $("#app").classList.remove("hide");
+      if(window.initializeListeningInsights) await window.initializeListeningInsights();
       load();
       loadProfile();
     }
   }catch(e){ err(e.message); }
-})();
+});
 </script>
 <script src="insights.js"></script>
 </body>
