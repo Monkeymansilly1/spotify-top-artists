@@ -184,31 +184,24 @@ async function inferArtistGenre(artist){
   cache[artist.id]=data;saveMbCache(cache);
   return data;
 }
-let genreScanRunning=false;
-async function scanGenres(artists,limit){
-  if(genreScanRunning)return;
-  genreScanRunning=true;
-  const button=document.querySelector("#auto-genres");
-  if(button)button.disabled=true;
-  const selected=artists.slice(0,limit), cache=mbCache();
-  let done=0,found=0;
-  for(const artist of selected){
-    try{
-      const result=await inferArtistGenre(artist);
-      if(result.genre)found++;
-    }catch(e){
-      // A temporary network failure must not poison the 30-day cache.
-      const msg=document.querySelector("#genre-scan-status");
-      if(msg)msg.textContent="Automatic lookup failed for "+artist.name+"; you can retry. "+e.message;
-    }
-    done++;
-    const progress=document.querySelector("#genre-scan-status");
-    if(progress)progress.textContent="Checked "+done+" / "+selected.length+" artists · "+found+" with suggested genres.";
-  }
-  genreScanRunning=false;
-  if(state.view==="genres")renderGenres().catch(e=>err(e.message));
-}
 
+/* Spotify's /me/top/artists maximum page size is 50.
+   Fetch offset 0 and 50 so genre analysis covers as many as 100. */
+const genreArtistsCache=new Map();
+async function genreArtists100(){
+  const key=state.range;
+  if(!genreArtistsCache.has(key)){
+    const request=Promise.all([
+      api("/me/top/artists?limit=50&offset=0&time_range="+encodeURIComponent(key)),
+      api("/me/top/artists?limit=50&offset=50&time_range="+encodeURIComponent(key))
+    ]).then(([first,second])=>[...(first.items||[]),...(second.items||[])])
+      .catch(e=>{genreArtistsCache.delete(key);throw e});
+    genreArtistsCache.set(key,request);
+  }
+  return genreArtistsCache.get(key);
+}
+let genreScanRunning=false, genreScanRange=null;
+const genreProgress={done:0,total:0,found:0,failed:0};
 function countGenres(artists){
   const counts=new Map(), custom=taggedGenres(), inferred=mbCache();
   for(const a of artists){
@@ -220,45 +213,87 @@ function countGenres(artists){
   }
   return [...counts].sort((a,b)=>b[1]-a[1]);
 }
-async function renderGenres(){
-  const artists=await rankedArtists(50), custom=taggedGenres(), inferred=mbCache();
-  const genres=countGenres(artists).slice(0,state.n), el=document.querySelector("#genres");
+function genreMessage(){
+  if(genreScanRunning){
+    return "Automatically checking "+genreProgress.done+" of "+genreProgress.total+
+      " artists ("+genreProgress.found+" tagged, "+genreProgress.failed+" lookup errors). "+
+      "Keep this page open to finish the first scan. Previous results are cached for 30 days.";
+  }
+  return "Automatic genre detection checks up to 100 of your top artists when you open this tab. "+
+    "Unknown or ambiguous artists remain unclassified. Existing results are cached on this device.";
+}
+function drawGenres(artists){
+  if(state.view!=="genres")return;
+  const custom=taggedGenres(), inferred=mbCache();
+  const genres=countGenres(artists).slice(0,state.n),el=document.querySelector("#genres");
   const automatic=artists.filter(a=>Array.isArray(a.genres)&&a.genres.length).length;
   const manual=artists.filter(a=>!!custom[a.id]).length;
   const detected=artists.filter(a=>!custom[a.id] && !(a.genres?.length) && inferred[a.id]?.genre).length;
-  let html='<li class="insight"><h2>Your music genres</h2><p class="insight-note">Spotify no longer consistently supplies artist genre tags. '+automatic+' of your '+artists.length+' top artists have tags from Spotify; '+detected+' have MusicBrainz suggestions; '+manual+' have your saved labels. Automatic matches are estimates and can misclassify artists.</p></li>';
+  let html='<li class="insight"><h2>Your music genres</h2><p class="insight-note">Analysing your top '+artists.length+' artists · '+automatic+' Spotify genre-tagged · '+detected+' MusicBrainz classified · '+manual+' manually labelled. Genres are artist classifications, not exact listening percentages.</p><p class="insight-note" id="genre-scan-status" aria-live="polite">'+safe(genreMessage())+'</p></li>';
   if(genres.length){
     const max=genres[0][1];
     html+=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
-  }else{
-    html+='<li class="insight-note">No genre labels yet. Run automatic detection below, or tag artists manually.</li>';
-  }
-  html+='<li class="insight genre-editor"><h2>Automatic genre detection</h2><p class="insight-note">Look up artists in MusicBrainz and classify the strongest genre tags. No paid AI key needed. Up to 10 artists per scan; each request is rate-limited. Some artists may have no reliable match.</p><button id="auto-genres" type="button">Detect genres for top 10 artists</button><p id="genre-scan-status" class="insight-note"></p><h2>Tag your top artists</h2><p class="insight-note">Choose a primary genre for each artist. Saved on this device and editable anytime.</p><div class="genre-picker-list">'+artists.map(a=>{
+  }else html+='<li class="insight-note">No supported genre tags yet. Automatic classification is running when connected, and unrecognised artists stay unclassified.</li>';
+  html+='<li class="insight genre-editor"><h2>Correct a classification</h2><p class="insight-note">Optional: override any automatic result. Your changes are saved privately in this browser.</p><div class="genre-picker-list">'+artists.map(a=>{
     const img=a.images?.[2]?.url||a.images?.[0]?.url||"";
-    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':'Choose genre')+'</option>'+
+    const source=inferred[a.id]?.genre || (a.genres?.length ? a.genres[0] : "");
+    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+safe(source ? "Auto: "+source : "Not classified")+'</option>'+
     GENRE_OPTIONS.map(g=>'<option value="'+safe(g)+'"'+(custom[a.id]===g?' selected':'')+'>'+safe(g)+'</option>').join("")+'</select></label>';
-  }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my genre labels</button></li>';
+  }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my corrections</button></li>';
   el.innerHTML=html;
-  const scanButton=document.querySelector("#auto-genres");
-  scanButton.disabled=genreScanRunning;
-  scanButton.onclick=()=>scanGenres(artists,10);
   el.querySelectorAll("select[data-artist-id]").forEach(select=>select.addEventListener("change",()=>{
-    const genres=taggedGenres();
-    if(select.value)genres[select.dataset.artistId]=select.value;
-    else delete genres[select.dataset.artistId];
-    try{localStorage.setItem(customGenreKey(),JSON.stringify(genres));}catch(e){err("Browser storage is unavailable: labels cannot be saved.");return;}
-    renderGenres().catch(e=>err(e.message));
+    const values=taggedGenres();
+    if(select.value)values[select.dataset.artistId]=select.value;
+    else delete values[select.dataset.artistId];
+    try{localStorage.setItem(customGenreKey(),JSON.stringify(values));}catch(e){err("Unable to save corrections in browser storage.");return;}
+    drawGenres(artists);
   }));
   document.querySelector("#clear-genre-tags").onclick=()=>{
-    localStorage.removeItem(customGenreKey());renderGenres().catch(e=>err(e.message));
+    localStorage.removeItem(customGenreKey());drawGenres(artists);
   };
 }
+async function scanGenres(artists){
+  if(genreScanRunning)return;
+  const range=state.range;
+  genreScanRunning=true;genreScanRange=range;
+  const cache=mbCache(), now=Date.now();
+  const pending=artists.filter(a=>!(a.genres?.length) && !taggedGenres()[a.id] &&
+    !(cache[a.id] && now-cache[a.id].time<30*24*3600*1000));
+  genreProgress.done=0;genreProgress.total=pending.length;genreProgress.found=0;genreProgress.failed=0;
+  drawGenres(artists);
+  try{
+    for(const artist of pending){
+      // Do not keep scanning a stale time-range or after logout.
+      if(!sessionStorage.getItem("token")||state.range!==range)break;
+      try{
+        const result=await inferArtistGenre(artist);
+        if(result.genre)genreProgress.found++;
+      }catch(e){genreProgress.failed++;}
+      genreProgress.done++;
+      if(genreProgress.done%5===0 || genreProgress.done===pending.length)drawGenres(artists);
+    }
+  }finally{
+    genreScanRunning=false;genreScanRange=null;
+    if(state.view==="genres" && state.range===range) drawGenres(artists);
+    else if(state.view==="genres") void renderGenres().catch(e=>err(e.message));
+  }
+}
+async function renderGenres(){
+  const range=state.range;
+  const artists=await genreArtists100();
+  if(state.view!=="genres"||state.range!==range)return;
+  drawGenres(artists);
+  // No click required; cached matches are skipped and scanning is rate limited.
+  if(!genreScanRunning)void scanGenres(artists);
+}
 async function wrapped(){
-  const [topTracks,topArtists]=await Promise.all([
+  const [topTracks,topArtists,allGenreArtists]=await Promise.all([
     api("/me/top/tracks?limit=50&time_range="+state.range),
-    rankedArtists(50)
+    rankedArtists(50),
+    genreArtists100()
   ]);
-  const tracks=topTracks.items||[], artists=topArtists||[], genres=countGenres(artists);
+  const tracks=topTracks.items||[], artists=topArtists||[], genres=countGenres(allGenreArtists);
+
   const art=x=>x?.images?.[0]?.url||"";
   const albumArt=x=>x?.album?.images?.[0]?.url||"";
   const top5=artists.slice(0,5);
