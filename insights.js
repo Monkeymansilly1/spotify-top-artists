@@ -36,9 +36,9 @@ function storeSnapshot(items){
   localStorage.setItem(snapshotKey(),JSON.stringify(snapshots.slice(-365)));
 }
 async function rankedArtists(limit){
-  const data=await api("/me/top/artists?limit="+limit+"&time_range="+state.range);
+  const data=await api("/me/top/artists?limit=50&time_range="+state.range);
   if(accountId)storeSnapshot(data.items);
-  return data.items;
+  return data.items.slice(0,limit);
 }
 function changeFromPrevious(artistId, position){
   const rows=getSnapshots();
