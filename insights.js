@@ -274,7 +274,8 @@ async function scanGenres(artists){
     }
   }finally{
     genreScanRunning=false;genreScanRange=null;
-    drawGenres(artists);
+    if(state.view==="genres" && state.range===range) drawGenres(artists);
+    else if(state.view==="genres") void renderGenres().catch(e=>err(e.message));
   }
 }
 async function renderGenres(){
@@ -286,11 +287,13 @@ async function renderGenres(){
   if(!genreScanRunning)void scanGenres(artists);
 }
 async function wrapped(){
-  const [topTracks,topArtists]=await Promise.all([
+  const [topTracks,topArtists,allGenreArtists]=await Promise.all([
     api("/me/top/tracks?limit=50&time_range="+state.range),
-    rankedArtists(50)
+    rankedArtists(50),
+    genreArtists100()
   ]);
-  const tracks=topTracks.items||[], artists=topArtists||[], genres=countGenres(artists);
+  const tracks=topTracks.items||[], artists=topArtists||[], genres=countGenres(allGenreArtists);
+
   const art=x=>x?.images?.[0]?.url||"";
   const albumArt=x=>x?.album?.images?.[0]?.url||"";
   const top5=artists.slice(0,5);
