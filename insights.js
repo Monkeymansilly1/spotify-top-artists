@@ -280,7 +280,7 @@ function updateGenreChart(artists){
   }
   html+='<li class="insight genre-editor"><h2>Automatic genre detection</h2><p class="insight-note">Automatically checks up to all 50 top artists using MusicBrainz and refreshes the chart as matches arrive. Some artists are not listed or have no genre tags; you can correct those below. Requests are rate-limited and cached.</p><p id="genre-scan-status" class="insight-note"></p><h2>Review artist genres</h2><p class="insight-note">Choose a primary genre for each artist. Saved on this device and editable anytime.</p><div class="genre-picker-list">'+artists.map(a=>{
     const img=a.images?.[2]?.url||a.images?.[0]?.url||"";
-    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':'Choose genre')+'</option>'+
+    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':inferred[a.id]?.genre?'Suggested: '+safe(inferred[a.id].genre):'Unclassified — choose genre')+'</option>'+
     GENRE_OPTIONS.map(g=>'<option value="'+safe(g)+'"'+(custom[a.id]===g?' selected':'')+'>'+safe(g)+'</option>').join("")+'</select></label>';
   }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my genre labels</button></li>';
   el.innerHTML=html;
