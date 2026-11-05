@@ -14,6 +14,7 @@ extraViews.forEach(function(item){
 });
 const css=document.createElement("style");
 css.textContent='.insight{padding:20px;border-radius:18px;background:rgba(255,255,255,.07);margin:12px 0}.insight h2{margin:0 0 10px}.insight-note{color:var(--muted);font-size:.88rem;margin:10px 0 20px}.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.stat{background:rgba(255,255,255,.08);padding:20px;border-radius:14px}.stat b{font-size:1.6rem;display:block;color:var(--accent)}.album-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:16px}.album-tile img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px}.album-tile a{color:inherit;text-decoration:none}.album-tile small,.rank-change{display:block;color:var(--muted)}.rank-change.up{color:#1ed760}.rank-change.down{color:#ffad70}.wrapped-slide{background:linear-gradient(135deg,#24205d,#116637);padding:35px 24px;border-radius:22px;min-height:235px;margin:14px 0;animation:reveal .5s ease both}.wrapped-slide h2{font-size:2rem}.wrapped-slide strong{font-size:clamp(1.5rem,5vw,3rem);display:block;overflow-wrap:anywhere}.wrapped-controls{display:flex;gap:10px;flex-wrap:wrap}.timeline-chart{width:100%;height:auto;max-height:310px}.timeline-dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--accent);margin-right:8px}@keyframes reveal{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}';
+css.textContent += "\n.genre-editor{display:block;flex-direction:column;align-items:stretch}.genre-editor h2{margin:0 0 4px}.genre-picker-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:16px 0}.genre-pick{display:flex;gap:9px;align-items:center;background:rgba(255,255,255,.06);padding:8px;border-radius:12px}.genre-pick img{height:38px;width:38px;object-fit:cover;border-radius:8px}.genre-pick span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis}.genre-pick select{min-width:106px;max-width:135px;border:1px solid #536a5e;border-radius:8px;background:#13251b;color:#fff;padding:7px}\n.wrapped-full{isolation:isolate;position:relative;overflow:hidden;min-height:585px;border-radius:22px;padding:25px;display:flex;flex-direction:column;color:#fff;box-shadow:0 22px 65px #0008;background:linear-gradient(145deg,#4616b7 0%,#1b1047 80%);animation:reveal .5s ease}.wrapped-full.lime{background:linear-gradient(145deg,#165c3b,#003023 85%)}.wrapped-full.orange{background:linear-gradient(145deg,#a64713,#3b1036 85%)}.wrapped-full.blue{background:linear-gradient(145deg,#0c59a1,#161442 85%)}.wrapped-full.pink{background:linear-gradient(145deg,#a92873,#311264 85%)}.wrapped-full::before{content:\"\";position:absolute;width:360px;height:360px;right:-150px;top:100px;border:55px solid #ffffff12;border-radius:50%;z-index:-1}.wrapped-topline,.wrapped-signoff{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:.72rem;font-weight:800;letter-spacing:.14em}.wrapped-progress{display:flex;gap:5px;margin:16px 0}.wrapped-dot{padding:0;min-width:0;flex:1;height:5px;background:#ffffff55;border-radius:4px}.wrapped-dot.active{background:white}.wrapped-body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px}.wrapped-copy{position:relative;z-index:2}.wrapped-kicker{font-size:.85rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.wrapped-copy h2{font-size:clamp(2.6rem,7vw,5rem);line-height:1.03;letter-spacing:-.045em;margin:10px 0 15px;max-width:720px}.wrapped-art{width:min(280px,62%);aspect-ratio:1;background-color:#ffffff22;background-position:center;background-size:cover;border-radius:18px;box-shadow:12px 15px 0 #0003;transform:rotate(-4deg);margin:12px 0 15px}.wrapped-hero-text strong{font-size:clamp(2rem,6vw,4rem);line-height:1.05;letter-spacing:-.03em;display:block;overflow-wrap:anywhere}.wrapped-hero-text p{font-size:1.08rem}.wrapped-slide-list{display:grid;gap:10px;max-width:750px}.wrapped-list-item{display:flex;align-items:center;gap:15px;padding:8px 12px;background:#ffffff18;border-radius:12px}.wrapped-list-item>b{font-size:1.6rem;min-width:20px}.wrapped-list-item img{width:56px;height:56px;border-radius:9px;object-fit:cover}.wrapped-list-item span{font-size:clamp(1rem,3.5vw,1.4rem);font-weight:800;overflow-wrap:anywhere}.wrapped-genre-row{position:relative;display:flex;justify-content:space-between;gap:12px;padding:12px 15px 16px;border-radius:9px;background:#ffffff16;overflow:hidden;font-weight:700}.wrapped-genre-fill{position:absolute;bottom:0;left:0;height:5px;background:#fff}.wrapped-genre-row b{font-size:.8rem}.wrapped-footnote{font-size:.82rem;opacity:.9}.wrapped-signoff{margin-top:28px}.wrapped-signoff span{font-size:1.4rem}.wrapped-controls{margin:14px 0 10px}.wrapped-controls button{background:rgba(255,255,255,.15);border:1px solid #ffffff2d}.wrapped-controls button:disabled{opacity:.35;cursor:default}@media(min-width:700px){.wrapped-full{padding:34px 42px}.wrapped-full:has(.wrapped-art) .wrapped-art{position:absolute;right:8%;top:37%;width:240px;opacity:.83}.wrapped-full:has(.wrapped-art) .wrapped-copy,.wrapped-full:has(.wrapped-art) .wrapped-hero-text{max-width:60%;position:relative;z-index:2}}\n";
 document.head.appendChild(css);
 const previousLoad=load;
 const originalViewButtons=[...document.querySelectorAll(".views button[data-v]")];
@@ -98,54 +99,91 @@ async function renderArtists(){
   note.textContent="Ranking changes compare saved visits on different days in this browser. Visit again on another day to see movement; changes are not Spotify stream counts.";
   document.querySelector("#artists-view").prepend(note);
 }
+
+const GENRE_OPTIONS=["Jump-up DnB","Drum & Bass","Liquid DnB","Jungle","Grime","UK Drill","Drill","UK Rap","Hip-Hop","Rap","Dubstep","Garage","UK Garage","House","Tech House","Techno","Trance","Pop","R&B","Soul","Afrobeats","Dancehall","Reggae","Rock","Indie","Metal","Electronic","Jazz","Classical","Other"];
+const customGenreKey=()=> "spotify-artist-genre-v2:"+(accountId||"anonymous");
+function taggedGenres(){
+  try {const data=JSON.parse(localStorage.getItem(customGenreKey())||"{}");return data&&typeof data==="object"&&!Array.isArray(data)?data:{};}
+  catch(e){return {};}
+}
 function countGenres(artists){
-  const counts=new Map();
-  for(const a of artists)for(const g of (Array.isArray(a.genres)?a.genres:[])){
-    const name=String(g).trim().toLowerCase();
-    if(name)counts.set(name,(counts.get(name)||0)+1);
+  const counts=new Map(), custom=taggedGenres();
+  for(const a of artists){
+    const source=custom[a.id] ? [custom[a.id]] : (Array.isArray(a.genres) ? a.genres : []);
+    for(const g of source){
+      const name=String(g).trim().toLowerCase();
+      if(name)counts.set(name,(counts.get(name)||0)+1);
+    }
   }
   return [...counts].sort((a,b)=>b[1]-a[1]);
 }
 async function renderGenres(){
-  const artists=await rankedArtists(50);
-  // Respect Spotify's current response; do not make 50 deprecated extra /artists calls.
-  const genres=countGenres(artists).slice(0,state.n);
-  const el=document.querySelector("#genres");
-  if(!genres.length){
-    el.innerHTML='<li class="insight">Spotify did not supply genre tags for these artists. Spotify has deprecated artist genre metadata, so reliable genres cannot be calculated from this API response. Your other rankings still work.</li>';
-    return;
+  const artists=await rankedArtists(50), custom=taggedGenres();
+  const genres=countGenres(artists).slice(0,state.n), el=document.querySelector("#genres");
+  const automatic=artists.filter(a=>Array.isArray(a.genres)&&a.genres.length).length;
+  const manual=artists.filter(a=>!!custom[a.id]).length;
+  let html='<li class="insight"><h2>Your music genres</h2><p class="insight-note">Spotify no longer consistently supplies artist genre tags. '+automatic+' of your '+artists.length+' top artists have tags from Spotify; '+manual+' have your saved labels. Label the missing ones below to build your chart — these are your classifications, not Spotify-verified genres.</p></li>';
+  if(genres.length){
+    const max=genres[0][1];
+    html+=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
+  }else{
+    html+='<li class="insight-note">No genre labels are available yet. Choose some below to start.</li>';
   }
-  const max=genres[0][1];
-  el.innerHTML=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
+  html+='<li class="insight genre-editor"><h2>Tag your top artists</h2><p class="insight-note">Choose a primary genre for each artist. Saved on this device and editable anytime.</p><div class="genre-picker-list">'+artists.map(a=>{
+    const img=a.images?.[2]?.url||a.images?.[0]?.url||"";
+    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':'Choose genre')+'</option>'+
+    GENRE_OPTIONS.map(g=>'<option value="'+safe(g)+'"'+(custom[a.id]===g?' selected':'')+'>'+safe(g)+'</option>').join("")+'</select></label>';
+  }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my genre labels</button></li>';
+  el.innerHTML=html;
+  el.querySelectorAll("select[data-artist-id]").forEach(select=>select.addEventListener("change",()=>{
+    const genres=taggedGenres();
+    if(select.value)genres[select.dataset.artistId]=select.value;
+    else delete genres[select.dataset.artistId];
+    try{localStorage.setItem(customGenreKey(),JSON.stringify(genres));}catch(e){err("Browser storage is unavailable: labels cannot be saved.");return;}
+    renderGenres().catch(e=>err(e.message));
+  }));
+  document.querySelector("#clear-genre-tags").onclick=()=>{
+    localStorage.removeItem(customGenreKey());renderGenres().catch(e=>err(e.message));
+  };
 }
 async function wrapped(){
-  const results=await Promise.all([
+  const [topTracks,topArtists]=await Promise.all([
     api("/me/top/tracks?limit=50&time_range="+state.range),
     rankedArtists(50)
   ]);
-  const tracks=results[0].items, artists=results[1], genres=countGenres(artists);
-  const albumsList=new Set(tracks.map(t=>t.album?.id).filter(Boolean));
+  const tracks=topTracks.items||[], artists=topArtists||[], genres=countGenres(artists);
+  const art=x=>x?.images?.[0]?.url||"";
+  const albumArt=x=>x?.album?.images?.[0]?.url||"";
+  const top5=artists.slice(0,5);
+  const stylePhoto=(url)=>url?' style="background-image:linear-gradient(0deg,rgba(0,0,0,.65),transparent 75%),url(&quot;'+safe(url)+'&quot;)"':"";
+  const lineup=top5.map((a,i)=>'<div class="wrapped-list-item"><b>'+(i+1)+'</b><img src="'+safe(art(a))+'" alt=""><span>'+safe(a.name)+'</span></div>').join("");
+  const trackLineup=tracks.slice(0,5).map((t,i)=>'<div class="wrapped-list-item"><b>'+(i+1)+'</b><img src="'+safe(albumArt(t))+'" alt=""><span>'+safe(t.name)+'</span></div>').join("");
+  const genreList=genres.slice(0,5).map((g,i)=>'<div class="wrapped-genre-row"><span>'+safe(titleCase(g[0]))+'</span><b>'+g[1]+' artists</b><div class="wrapped-genre-fill" style="width:'+(100*g[1]/genres[0][1])+'%"></div></div>').join("");
   slides=[
-    {title:"Your listening era",main:rangeName(),sub:"A snapshot of your Spotify top items — not exact stream counts."},
-    {title:"Your #1 artist",main:artists[0]?.name||"No artist data",sub:"Your most highly ranked artist for this period."},
-    {title:"Your #1 track",main:tracks[0]?.name||"No track data",sub:tracks[0]?.artists.map(a=>a.name).join(", ")||""},
-    {title:"Your music mix",main:genres[0]?titleCase(genres[0][0]):"Genre data unavailable",sub:genres[0]?"Most common genre tag among your top artists.":"Spotify no longer consistently returns artist genres."},
-    {title:"Your top artists",main:artists.slice(0,5).map((a,i)=>(i+1)+". "+a.name).join(" · ")||"No artist data",sub:"Your top five"},
-    {title:"Your top-track collection",main:String(albumsList.size)+" albums",sub:"Distinct albums represented in your top 50 tracks (not all albums you listened to)."}
+    {kicker:"YOUR SOUND • "+rangeName(),title:"This is your listening era.",hero:state.name?state.name:"Your music",note:"Made from your Spotify top tracks and artists.",image:albumArt(tracks[0]),theme:"purple",kind:"hero"},
+    {kicker:"THE MAIN CHARACTER",title:"Your #1 artist",hero:artists[0]?.name||"No artist data",note:"Your most highly ranked artist in this time range.",image:art(artists[0]),theme:"lime",kind:"hero"},
+    {kicker:"ON REPEAT",title:"Your #1 track",hero:tracks[0]?.name||"No track data",note:tracks[0]?.artists?.map(a=>a.name).join(", ")||"",image:albumArt(tracks[0]),theme:"orange",kind:"hero"},
+    {kicker:"THE TOP FIVE",title:"Your favourite artists",html:lineup||"<p>No artist data</p>",theme:"blue",kind:"list"},
+    {kicker:"YOUR MUSIC DNA",title:"Genre breakdown",html:genreList||'<p>Genre tags unavailable. Go to Top genres and label your artists to build this chart.</p>',note:"Genres are tags among top artists, not actual listening percentages.",theme:"pink",kind:"list"},
+    {kicker:"THE SOUNDTRACK",title:"Your top five tracks",html:trackLineup||"<p>No track data</p>",theme:"purple",kind:"list"},
+    {kicker:"THAT'S YOUR SOUND",title:"The recap",hero:String(new Set(tracks.map(t=>t.album?.id).filter(Boolean)).size)+" albums",note:"Represented among your top 50 tracks. Not an album play count.",image:albumArt(tracks[1]||tracks[0]),theme:"lime",kind:"hero"}
   ];
   slideIndex=0;displaySlide();
 }
 function displaySlide(){
   const s=slides[slideIndex];if(!s)return;
-  document.getElementById("wrapped-content").innerHTML='<p class="insight-note">Your personal Spotify recap for '+safe(rangeName())+'.</p><div class="wrapped-slide" aria-live="polite"><small>SLIDE '+(slideIndex+1)+' / '+slides.length+'</small><h2>'+safe(s.title)+'</h2><strong>'+safe(s.main)+'</strong><p>'+safe(s.sub)+'</p></div>'+
-    '<div class="wrapped-controls"><button id="wrapped-prev" '+(!slideIndex?"disabled":"")+'>Previous</button><button id="wrapped-next" '+(slideIndex===slides.length-1?"disabled":"")+'>Next</button><button id="wrapped-copy">Copy this slide</button></div>';
-  document.getElementById("wrapped-prev").onclick=()=>{slideIndex--;displaySlide();};
-  document.getElementById("wrapped-next").onclick=()=>{slideIndex++;displaySlide();};
-  document.getElementById("wrapped-copy").onclick=async()=>{
-    const text=s.title+": "+s.main+" — "+s.sub;
-    try{await navigator.clipboard.writeText(text);err("Slide copied to clipboard.");}
-    catch(e){err("Clipboard access unavailable in this browser.");}
-  };
+  const dots=slides.map((_,i)=>'<button type="button" class="wrapped-dot '+(i===slideIndex?"active":"")+'" data-slide="'+i+'" aria-label="Go to slide '+(i+1)+'"></button>').join("");
+  const body=s.kind==="hero"?'<div class="wrapped-art"'+(s.image?' style="background-image:url(&quot;'+safe(s.image)+'&quot;)"':'')+'></div><div class="wrapped-hero-text"><strong>'+safe(s.hero)+'</strong><p>'+safe(s.note)+'</p></div>':
+    '<div class="wrapped-slide-list">'+s.html+'</div>'+(s.note?'<p class="wrapped-footnote">'+safe(s.note)+'</p>':"");
+  document.getElementById("wrapped-content").innerHTML=
+    '<div class="wrapped-full '+s.theme+'" aria-live="polite"><div class="wrapped-topline"><span>YOUR SPOTIFY RECAP</span><span>'+String(slideIndex+1).padStart(2,"0")+' / '+String(slides.length).padStart(2,"0")+'</span></div>'+
+    '<div class="wrapped-progress">'+dots+'</div><div class="wrapped-body"><div class="wrapped-copy"><p class="wrapped-kicker">'+safe(s.kicker)+'</p><h2>'+safe(s.title)+'</h2></div>'+body+'</div><div class="wrapped-signoff">MY TOP SPOTIFY <span>✦</span> '+safe(rangeName()).toUpperCase()+'</div></div>'+
+    '<div class="wrapped-controls"><button id="wrapped-prev" '+(!slideIndex?"disabled":"")+'>← Previous</button><button id="wrapped-next" '+(slideIndex===slides.length-1?"disabled":"")+'>Next →</button><button id="wrapped-share">Download recap card</button></div>'+
+    '<p class="insight-note">This recap reflects your Spotify rankings, not full listening history or exact stream counts.</p>';
+  document.getElementById("wrapped-prev").onclick=()=>{if(slideIndex>0){slideIndex--;displaySlide();}};
+  document.getElementById("wrapped-next").onclick=()=>{if(slideIndex<slides.length-1){slideIndex++;displaySlide();}};
+  document.querySelectorAll(".wrapped-dot").forEach(b=>b.onclick=()=>{slideIndex=Number(b.dataset.slide);displaySlide();});
+  document.getElementById("wrapped-share").onclick=shareCard;
 }
 async function timeline(){
   await rankedArtists(50);
@@ -193,5 +231,5 @@ load=async function(){
   }
 };
 allViewButtons.forEach(b=>b.onclick=()=>{state.view=b.dataset.v;load();});
-initializeAccount().then(()=>{if(sessionStorage.getItem("token"))load();});
+window.initializeListeningInsights=initializeAccount;
 })();
