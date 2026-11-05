@@ -161,52 +161,97 @@ function musicBrainz(url){
   return job;
 }
 const artistNameKey=name=>String(name).normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g,"");
+// Resolve candidate artists carefully: exact names and MusicBrainz aliases are
+// allowed, but ties are marked ambiguous rather than assigned an arbitrary genre.
+function matchingCandidates(items, name){
+  const target=artistNameKey(name);
+  const exact=(items||[]).filter(x=>artistNameKey(x.name)===target ||
+    (x.aliases||[]).some(a=>artistNameKey(a.name)===target));
+  const ranked=exact.filter(x=>Number(x.score??100)>=75)
+    .sort((a,b)=>(Number(b.score)||0)-(Number(a.score)||0));
+  if(ranked.length===1)return ranked[0];
+  if(ranked.length>1&&Number(ranked[0].score)>Number(ranked[1].score)+12)return ranked[0];
+  return null;
+}
 async function inferArtistGenre(artist){
   const cache=mbCache(), prior=cache[artist.id];
-  if(prior && Date.now()-prior.time<30*24*3600*1000)return prior;
-  const query='artist:"'+artist.name.replace(/["\\]/g," ")+'"';
-  const search=await musicBrainz("https://musicbrainz.org/ws/2/artist?fmt=json&limit=5&query="+encodeURIComponent(query));
-  const matches=(search.artists||[]).filter(x=>artistNameKey(x.name)===artistNameKey(artist.name) && Number(x.score||0)>=90);
-  // Avoid guessing which real artist a homonym refers to.
-  if(matches.length!==1){
-    const data={genre:null,source:"unmatched",time:Date.now()};
+  const ttl=prior?.genre ? 30*86400000 : 3*86400000;
+  if(prior && Date.now()-prior.time<ttl)return prior;
+  // Query with an artist-name field, then retry a general search for aliases.
+  const cleaned=artist.name.replace(/["\\]/g," ");
+  const queries=['artist:"'+cleaned+'"',cleaned];
+  let match=null, ambiguous=false;
+  for(const q of queries){
+    const search=await musicBrainz("https://musicbrainz.org/ws/2/artist?fmt=json&limit=12&query="+encodeURIComponent(q));
+    const hits=search.artists||[];
+    match=matchingCandidates(hits,artist.name);
+    if(match)break;
+    if(hits.some(x=>artistNameKey(x.name)===artistNameKey(artist.name)))ambiguous=true;
+  }
+  if(!match){
+    const data={genre:null,source:ambiguous?"ambiguous":"unmatched",time:Date.now()};
     cache[artist.id]=data;saveMbCache(cache);return data;
   }
-  const detail=await musicBrainz("https://musicbrainz.org/ws/2/artist/"+encodeURIComponent(matches[0].id)+"?inc=genres%2Btags&fmt=json");
+  const detail=await musicBrainz("https://musicbrainz.org/ws/2/artist/"+encodeURIComponent(match.id)+"?inc=genres%2Btags&fmt=json");
   const labels=[...(detail.genres||[]).map(x=>({...x,weight:3})),...(detail.tags||[]).map(x=>({...x,weight:1}))];
   const scores=new Map();
   for(const label of labels){
     const genre=normaliseMbGenre(label.name||"");
-    if(genre) scores.set(genre,(scores.get(genre)||0)+Math.max(1,Number(label.count)||0)*label.weight);
+    if(genre)scores.set(genre,(scores.get(genre)||0)+Math.max(1,Number(label.count)||0)*label.weight);
   }
   const best=[...scores].sort((a,b)=>b[1]-a[1])[0];
-  const data={genre:best?.[0]||null,source:"MusicBrainz",time:Date.now()};
+  const data={genre:best?.[0]||null,source:best?"MusicBrainz":"untagged",time:Date.now()};
   cache[artist.id]=data;saveMbCache(cache);
   return data;
 }
-let genreScanRunning=false;
-async function scanGenres(artists,limit){
+let genreScanRunning=false, genreScanProgress={done:0,total:0,found:0,failed:0},genreScanKey="";
+function genreProgressText(){
+  const p=genreScanProgress;
+  if(!p.total)return "Automatic lookup starts when you open Top genres.";
+  return (genreScanRunning?"Detecting":"Checked")+" "+p.done+" / "+p.total+
+    " artists · "+p.found+" classified"+(p.failed?" · "+p.failed+" lookup errors":"")+
+    (genreScanRunning?". You can use other tabs while this runs.":".");
+}
+function updateGenreProgress(){
+  const status=document.querySelector("#genre-scan-status");
+  if(status)status.textContent=genreProgressText();
+}
+async function scanGenres(artists){
+  const key=(accountId||"anonymous")+":"+state.range;
   if(genreScanRunning)return;
+  const selected=artists.slice(0,50).filter(a=>a?.id);
+  // Skip cache hits so subsequent visits don't issue unnecessary lookups.
+  const cache=mbCache(), now=Date.now();
+  const pending=selected.filter(a=>!cache[a.id]||now-cache[a.id].time> (cache[a.id].genre?30:3)*86400000);
+  genreScanProgress={done:selected.length-pending.length,total:selected.length,
+    found:selected.filter(a=>cache[a.id]?.genre).length,failed:0};
+  genreScanKey=key;
+  updateGenreProgress();
+  if(!pending.length)return;
   genreScanRunning=true;
-  const button=document.querySelector("#auto-genres");
-  if(button)button.disabled=true;
-  const selected=artists.slice(0,limit), cache=mbCache();
-  let done=0,found=0;
-  for(const artist of selected){
+  updateGenreProgress();
+  for(const artist of pending){
     try{
       const result=await inferArtistGenre(artist);
-      if(result.genre)found++;
+      if(result.genre)genreScanProgress.found++;
     }catch(e){
-      // A temporary network failure must not poison the 30-day cache.
-      const msg=document.querySelector("#genre-scan-status");
-      if(msg)msg.textContent="Automatic lookup failed for "+artist.name+"; you can retry. "+e.message;
+      genreScanProgress.failed++;
+      // Retry on a later visit; do not cache network failures.
     }
-    done++;
-    const progress=document.querySelector("#genre-scan-status");
-    if(progress)progress.textContent="Checked "+done+" / "+selected.length+" artists · "+found+" with suggested genres.";
+    genreScanProgress.done++;
+    updateGenreProgress();
+    if(state.view==="genres" && genreScanProgress.done%5===0){
+      updateGenreChart(artists);
+    }
   }
   genreScanRunning=false;
-  if(state.view==="genres")renderGenres().catch(e=>err(e.message));
+  updateGenreProgress();
+  if(state.view==="genres")updateGenreChart(artists);
+}
+function ensureGenreScan(artists){
+  if(!accountId||!artists?.length)return;
+  // Fire and forget; genre requests are serialized by musicBrainz().
+  scanGenres(artists).catch(()=>{genreScanRunning=false;updateGenreProgress();});
 }
 
 function countGenres(artists){
@@ -220,8 +265,8 @@ function countGenres(artists){
   }
   return [...counts].sort((a,b)=>b[1]-a[1]);
 }
-async function renderGenres(){
-  const artists=await rankedArtists(50), custom=taggedGenres(), inferred=mbCache();
+function updateGenreChart(artists){
+  const custom=taggedGenres(), inferred=mbCache();
   const genres=countGenres(artists).slice(0,state.n), el=document.querySelector("#genres");
   const automatic=artists.filter(a=>Array.isArray(a.genres)&&a.genres.length).length;
   const manual=artists.filter(a=>!!custom[a.id]).length;
@@ -231,27 +276,31 @@ async function renderGenres(){
     const max=genres[0][1];
     html+=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
   }else{
-    html+='<li class="insight-note">No genre labels yet. Run automatic detection below, or tag artists manually.</li>';
+    html+='<li class="insight-note">No genre labels yet. Automatic detection is running or no genre metadata was found. You can label artists below.</li>';
   }
-  html+='<li class="insight genre-editor"><h2>Automatic genre detection</h2><p class="insight-note">Look up artists in MusicBrainz and classify the strongest genre tags. No paid AI key needed. Up to 10 artists per scan; each request is rate-limited. Some artists may have no reliable match.</p><button id="auto-genres" type="button">Detect genres for top 10 artists</button><p id="genre-scan-status" class="insight-note"></p><h2>Tag your top artists</h2><p class="insight-note">Choose a primary genre for each artist. Saved on this device and editable anytime.</p><div class="genre-picker-list">'+artists.map(a=>{
+  html+='<li class="insight genre-editor"><h2>Automatic genre detection</h2><p class="insight-note">Automatically checks up to all 50 top artists using MusicBrainz and refreshes the chart as matches arrive. Some artists are not listed or have no genre tags; you can correct those below. Requests are rate-limited and cached.</p><p id="genre-scan-status" class="insight-note"></p><h2>Review artist genres</h2><p class="insight-note">Choose a primary genre for each artist. Saved on this device and editable anytime.</p><div class="genre-picker-list">'+artists.map(a=>{
     const img=a.images?.[2]?.url||a.images?.[0]?.url||"";
-    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':'Choose genre')+'</option>'+
+    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+(a.genres?.length?'Use Spotify tags':inferred[a.id]?.genre?'Suggested: '+safe(inferred[a.id].genre):'Unclassified — choose genre')+'</option>'+
     GENRE_OPTIONS.map(g=>'<option value="'+safe(g)+'"'+(custom[a.id]===g?' selected':'')+'>'+safe(g)+'</option>').join("")+'</select></label>';
   }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my genre labels</button></li>';
   el.innerHTML=html;
-  const scanButton=document.querySelector("#auto-genres");
-  scanButton.disabled=genreScanRunning;
-  scanButton.onclick=()=>scanGenres(artists,10);
+  updateGenreProgress();
   el.querySelectorAll("select[data-artist-id]").forEach(select=>select.addEventListener("change",()=>{
     const genres=taggedGenres();
     if(select.value)genres[select.dataset.artistId]=select.value;
     else delete genres[select.dataset.artistId];
     try{localStorage.setItem(customGenreKey(),JSON.stringify(genres));}catch(e){err("Browser storage is unavailable: labels cannot be saved.");return;}
-    renderGenres().catch(e=>err(e.message));
+    updateGenreChart(artists);
   }));
   document.querySelector("#clear-genre-tags").onclick=()=>{
-    localStorage.removeItem(customGenreKey());renderGenres().catch(e=>err(e.message));
+    localStorage.removeItem(customGenreKey());updateGenreChart(artists);
   };
+}
+
+async function renderGenres(){
+  const artists=await rankedArtists(50);
+  updateGenreChart(artists);
+  ensureGenreScan(artists);
 }
 async function wrapped(){
   const [topTracks,topArtists]=await Promise.all([
@@ -276,6 +325,7 @@ async function wrapped(){
     {kicker:"THAT'S YOUR SOUND",title:"The recap",hero:String(new Set(tracks.map(t=>t.album?.id).filter(Boolean)).size)+" albums",note:"Represented among your top 50 tracks. Not an album play count.",image:albumArt(tracks[1]||tracks[0]),theme:"lime",kind:"hero"}
   ];
   slideIndex=0;displaySlide();
+  ensureGenreScan(artists);
 }
 function displaySlide(){
   const s=slides[slideIndex];if(!s)return;
@@ -338,5 +388,11 @@ load=async function(){
   }
 };
 allViewButtons.forEach(b=>b.onclick=()=>{state.view=b.dataset.v;load();});
-window.initializeListeningInsights=initializeAccount;
+window.initializeListeningInsights=async function(){
+  await initializeAccount();
+  // Start collecting genres automatically after Spotify login.
+  if(accountId){
+    rankedArtists(50).then(artists=>ensureGenreScan(artists)).catch(()=>{});
+  }
+};
 })();
