@@ -120,7 +120,7 @@ const CLIENT_ID = "9cf1c588e2de4aaea8f093ac325c5922";
 // 2. Add this exact URL as a Redirect URI in your Spotify app settings
 const REDIRECT = location.origin + location.pathname;
 // request playlist scope so users can create playlists from their top tracks
-const SCOPE = "user-top-read playlist-modify-private";
+const SCOPE = "user-top-read user-read-recently-played playlist-modify-private";
 
 const $ = s => document.querySelector(s);
 const err = m => $("#err").textContent = m;
@@ -480,5 +480,6 @@ $("#logout").onclick = () => {
   }catch(e){ err(e.message); }
 })();
 </script>
+<script src="insights.js"></script>
 </body>
 </html>
