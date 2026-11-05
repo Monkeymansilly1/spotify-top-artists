@@ -9,7 +9,7 @@ A single-page Spotify dashboard with PKCE authentication, top tracks, top artist
 - **Recently played:** up to 50 recently played Spotify tracks, including their play time. Requires the `user-read-recently-played` OAuth scope; log out and reconnect to approve.
 - **Top albums:** estimates album rankings from the albums represented in the user's top 50 tracks. These numbers **are not album stream counts**.
 - **Timeline:** displays top artist ranks across daily browser snapshots, by Spotify account and time range.
-- **Top genres:** uses genre tags actually returned by Spotify; clearly explains when unavailable instead of guessing them.
+- **Top genres:** uses genre tags actually returned by Spotify and offers editable, locally saved primary-genre labels for artists whose metadata is missing. Manual labels are identified as user classifications rather than Spotify data.
 
 ## Privacy and limitations
 
@@ -22,3 +22,7 @@ Spotify's top-item API does not provide exact play counts or full listening hist
 Host `index.html` and `insights.js` together using GitHub Pages or a local web server. Register the exact served page URL as a redirect URI in the Spotify Developer Dashboard. The OAuth client ID and redirect URI live in `index.html`; no client secret is required for PKCE.
 
 If Spotify authorization permissions change, use Log out followed by Log in again.
+
+## Login and refresh behaviour
+
+A Spotify 401 response no longer refreshes the whole page. Instead, the app shows the login screen and asks you to authenticate again. On the first page load, the app waits until the listening-insights script is ready and fetches the user ID once before rendering statistics.
