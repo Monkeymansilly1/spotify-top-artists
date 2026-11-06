@@ -34,3 +34,7 @@ On **Top genres**, select **Detect genres for top 10 artists**. The app searches
 ## Automatic Top 100 Genres
 
 Opening **Top genres** now automatically requests the top 100 artists in **two Spotify API pages** (50 artists at offsets 0 and 50), and checks any not-yet-classified artist against MusicBrainz without requiring a button. Results update progressively, respecting MusicBrainz's approximately one-request-per-second usage policy. A first-time scan can take several minutes while the tab stays open; cached genre matches are reused on later visits. Up to 100 artists are supported, but Spotify may return fewer. Ambiguous or missing matches are left unclassified, and manually chosen corrections still override automatic tags. Wrapped's genre section also uses this top-100 set and available cached classifications.
+
+## Genre coverage and retries
+
+The number of artists **checked** is not the same as the number successfully **classified**. The genre page now explicitly reports total classified artists out of the Spotify results. Searches include up to 20 MusicBrainz candidates, while ambiguous artist identities remain unclassified rather than guessed. Successful classifications remain cached for 30 days; empty or unmatched results are retried after one day. Network failures are retried at the next visit.
