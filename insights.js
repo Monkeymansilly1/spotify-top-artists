@@ -162,47 +162,128 @@ function musicBrainz(url){
 }
 const artistNameKey=name=>String(name).normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g,"");
 
-const validGenreCache = item => item && Date.now()-item.time < (item.genre ? 30 : 1)*86400000;
-async function inferArtistGenre(artist){
-  const cache=mbCache(), prior=cache[artist.id];
-  if(validGenreCache(prior))return prior;
+
+/* Multi-source genre evidence: artist metadata, not audio AI.
+   Last.fm is opt-in because its API requires a developer key. */
+const lastFmKey=()=>sessionStorage.getItem("soundprint-lastfm-key")||"";
+const genreCacheVersion=()=> "spotify-genre-evidence-v3:"+(accountId||"anonymous");
+const genreCache=()=>{try{return JSON.parse(localStorage.getItem(genreCacheVersion())||"{}")}catch(e){return {}}};
+const saveGenreCache=v=>{try{localStorage.setItem(genreCacheVersion(),JSON.stringify(v))}catch(e){}};
+const validGenreCache=item=>item && Date.now()-item.time < (item.genre?30:1)*86400000;
+const genreNorm=text=>String(text||"").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g,"");
+const musicTypes=/musician|singer|rapper|record producer|dj\b|band\b|music group|musical artist|songwriter|electronic music|hip hop|drum and bass|grime|drill music/i;
+async function publicJson(url){
+  const response=await fetch(url,{headers:{Accept:"application/json"}});
+  if(!response.ok)throw Error("Public music source returned "+response.status);
+  const data=await response.json();
+  if(data.error)throw Error(data.info||data.error.message||"Public music source error");
+  return data;
+}
+const votesFromTags=(list,source,scale=1)=>list.map(t=>({
+  genre:normaliseMbGenre(t.name||""),
+  weight:Math.min(12,Math.max(1,Number(t.count)||1))*scale,
+  source
+})).filter(t=>t.genre);
+async function musicBrainzVotes(artist){
   const query='artist:"'+artist.name.replace(/["\\]/g," ")+'"';
   const search=await musicBrainz("https://musicbrainz.org/ws/2/artist?fmt=json&limit=20&query="+encodeURIComponent(query));
-  const matches=(search.artists||[]).filter(x=>artistNameKey(x.name)===artistNameKey(artist.name) && Number(x.score||0)>=90);
-  if(!matches.length){
-    const data={genre:null,source:"unmatched",time:Date.now()};
-    cache[artist.id]=data;saveMbCache(cache);return data;
-  }
-  const weigh=labels=>{
-    const scores=new Map();
-    for(const label of labels){
-      const genre=normaliseMbGenre(label.name||"");
-      if(genre)scores.set(genre,(scores.get(genre)||0)+Math.max(1,Number(label.count)||0)*(label.weight||1));
-    }
-    return [...scores].sort((x,y)=>y[1]-x[1]);
-  };
-  const candidates=matches.map(match=>({
-    match,
-    genres:weigh([...(match.genres||[]).map(x=>({...x,weight:3})),...(match.tags||[]).map(x=>({...x,weight:1}))])
-  }));
-  // Keep artist matching conservative: when names collide, use metadata only
-  // if it clearly singles out a candidate.
-  const withGenres=candidates.filter(c=>c.genres.length);
-  let chosen=null;
-  if(matches.length===1)chosen=candidates[0];
-  else if(withGenres.length===1)chosen=withGenres[0];
-  if(!chosen){
-    const data={genre:null,source:"ambiguous",time:Date.now()};
-    cache[artist.id]=data;saveMbCache(cache);return data;
-  }
-  if(!chosen.genres.length){
-    const detail=await musicBrainz("https://musicbrainz.org/ws/2/artist/"+encodeURIComponent(chosen.match.id)+"?inc=genres%2Btags&fmt=json");
-    chosen.genres=weigh([...(detail.genres||[]).map(x=>({...x,weight:3})),...(detail.tags||[]).map(x=>({...x,weight:1}))]);
-  }
-  const data={genre:chosen.genres[0]?.[0]||null,source:"MusicBrainz",time:Date.now()};
-  cache[artist.id]=data;saveMbCache(cache);return data;
+  const matches=(search.artists||[]).filter(x=>genreNorm(x.name)===genreNorm(artist.name)&&Number(x.score||0)>=90);
+  if(!matches.length)return [];
+  // Restrict homonyms: a name collision without a unique metadata-bearing candidate is unsafe.
+  const tagged=matches.filter(x=>(x.tags||[]).length||(x.genres||[]).length);
+  const candidate=matches.length===1?matches[0]:tagged.length===1?tagged[0]:null;
+  if(!candidate)return [];
+  const genres=[...(candidate.genres||[]).map(t=>({...t,count:Math.max(1,t.count||0)*2})),...(candidate.tags||[])];
+  if(genres.length)return votesFromTags(genres,"MusicBrainz",2);
+  const full=await musicBrainz("https://musicbrainz.org/ws/2/artist/"+encodeURIComponent(candidate.id)+"?inc=genres%2Btags&fmt=json");
+  return votesFromTags([...(full.genres||[]).map(t=>({...t,count:Math.max(1,t.count||0)*2})),...(full.tags||[])],"MusicBrainz",2);
 }
-
+async function lastFmVotes(artist){
+  const key=lastFmKey();
+  if(!key)return [];
+  const params=new URLSearchParams({method:"artist.gettoptags",artist:artist.name,api_key:key,format:"json",autocorrect:"0"});
+  const data=await publicJson("https://ws.audioscrobbler.com/2.0/?"+params);
+  return votesFromTags((data.toptags?.tag||[]).filter(t=>Number(t.count)>=5).slice(0,20),"Last.fm",2);
+}
+async function wikiArtist(artist){
+  // Obtain Wikipedia categories and linked Wikidata ID, using MediaWiki's browser CORS.
+  const params=new URLSearchParams({action:"query",generator:"search",gsrsearch:'"'+artist.name.replace(/["\\]/g," ")+'" musician',gsrlimit:"8",prop:"pageprops|categories|extracts",cllimit:"40",exintro:"1",explaintext:"1",format:"json",origin:"*"});
+  const data=await publicJson("https://en.wikipedia.org/w/api.php?"+params);
+  const pages=Object.values(data.query?.pages||{});
+  const candidates=pages.filter(p=>{
+    const title=String(p.title||"");
+    const titleMatch=genreNorm(title.replace(/\s*\([^)]*\)\s*$/,""))===genreNorm(artist.name);
+    const musical=musicTypes.test(String(p.extract||"").slice(0,420))||/\((musician|rapper|singer|band|dj|record producer)\)/i.test(title);
+    return titleMatch && musical;
+  });
+  return candidates.length===1?candidates[0]:null;
+}
+async function wikipediaVotes(page){
+  if(!page)return [];
+  const tags=(page.categories||[]).map(c=>String(c.title||"").replace(/^Category:/,""));
+  const evidence=[];
+  for(const tag of tags){
+    // Only use categories that explicitly describe musicians or music, not
+    // genre words casually mentioned in someone's biography.
+    if(/musicians|rappers|record producers|bands|musical groups|singers|music artists|djs\b/i.test(tag)){
+      const found=normaliseMbGenre(tag);
+      if(found)evidence.push({name:tag,count:2});
+    }
+  }
+  return votesFromTags(evidence,"Wikipedia",1);
+}
+async function wikidataVotes(page){
+  const id=page?.pageprops?.wikibase_item;
+  if(!/^Q\d+$/.test(id||""))return [];
+  const qs=new URLSearchParams({action:"wbgetentities",ids:id,props:"claims",format:"json",origin:"*"});
+  const data=await publicJson("https://www.wikidata.org/w/api.php?"+qs);
+  const claims=data.entities?.[id]?.claims?.P136||[];
+  const ids=[...new Set(claims.map(c=>c.mainsnak?.datavalue?.value?.id).filter(q=>/^Q\d+$/.test(q||"")))].slice(0,30);
+  if(!ids.length)return [];
+  const ls=new URLSearchParams({action:"wbgetentities",ids:ids.join("|"),props:"labels",languages:"en",format:"json",origin:"*"});
+  const labels=await publicJson("https://www.wikidata.org/w/api.php?"+ls);
+  return votesFromTags(ids.map(q=>({name:labels.entities?.[q]?.labels?.en?.value||"",count:3})),"Wikidata",2);
+}
+function chooseGenre(votes){
+  const scores=new Map();
+  for(const v of votes){
+    if(!scores.has(v.genre))scores.set(v.genre,{score:0,sources:new Set()});
+    const entry=scores.get(v.genre);entry.score+=v.weight;entry.sources.add(v.source);
+  }
+  const ranked=[...scores].sort((a,b)=>b[1].score-a[1].score);
+  if(!ranked.length)return {genre:null,source:"unmatched",confidence:"none"};
+  const [genre,evidence]=ranked[0],second=ranked[1]?.[1]?.score||0;
+  // At least two sources, or strong evidence from one, and avoid near ties.
+  const confidence=evidence.sources.size>=2?"high":evidence.score>=8?"medium":"low";
+  if(confidence==="low" || (second>0 && evidence.score<second*1.25))
+    return {genre:null,source:"ambiguous",confidence:"low"};
+  return {genre,source:[...evidence.sources].join(" + "),confidence};
+}
+async function inferArtistGenre(artist){
+  const cache=genreCache(),old=cache[artist.id];
+  if(validGenreCache(old))return old;
+  const votes=[];
+  let success=0,errors=0;
+  async function collect(task){
+    try{const found=await task();success++;votes.push(...found)}
+    catch(e){errors++;}
+  }
+  // Avoid parallel MusicBrainz bursts; its helper already throttles requests.
+  await collect(()=>musicBrainzVotes(artist));
+  await collect(()=>lastFmVotes(artist));
+  let page=null;
+  try{page=await wikiArtist(artist);success++}catch(e){errors++}
+  if(page){
+    await collect(()=>wikipediaVotes(page));
+    await collect(()=>wikidataVotes(page));
+  }
+  const picked=chooseGenre(votes);
+  const result={...picked,time:Date.now(),errors};
+  // Do not freeze a network outage or partial data for 30 days.
+  if(errors && !result.genre){return result;}
+  cache[artist.id]=result;saveGenreCache(cache);
+  return result;
+}
 /* Spotify's /me/top/artists maximum page size is 50.
    Fetch offset 0 and 50 so genre analysis covers as many as 100. */
 const genreArtistsCache=new Map();
@@ -221,7 +302,7 @@ async function genreArtists100(){
 let genreScanRunning=false, genreScanRange=null;
 const genreProgress={done:0,total:0,found:0,failed:0,unmatched:0};
 function countGenres(artists){
-  const counts=new Map(), custom=taggedGenres(), inferred=mbCache();
+  const counts=new Map(), custom=taggedGenres(), inferred=genreCache();
   for(const a of artists){
     const source=custom[a.id] ? [custom[a.id]] : ((Array.isArray(a.genres)&&a.genres.length) ? a.genres : (inferred[a.id]?.genre ? [inferred[a.id].genre] : []));
     for(const g of source){
@@ -242,13 +323,13 @@ function genreMessage(){
 }
 function drawGenres(artists){
   if(state.view!=="genres")return;
-  const custom=taggedGenres(), inferred=mbCache();
+  const custom=taggedGenres(), inferred=genreCache();
   const genres=countGenres(artists).slice(0,state.n),el=document.querySelector("#genres");
   const automatic=artists.filter(a=>Array.isArray(a.genres)&&a.genres.length).length;
   const manual=artists.filter(a=>!!custom[a.id]).length;
   const detected=artists.filter(a=>!custom[a.id] && !(a.genres?.length) && inferred[a.id]?.genre).length;
   const classified=artists.filter(a=>!!custom[a.id] || !!a.genres?.length || !!inferred[a.id]?.genre).length;
-  let html='<li class="insight"><h2>Your music genres</h2><p class="insight-note">Classified '+classified+' of '+artists.length+' artists · '+automatic+' Spotify genre-tagged · '+detected+' MusicBrainz classified · '+manual+' manually labelled. Genres are artist classifications, not exact listening percentages.</p><p class="insight-note" id="genre-scan-status" aria-live="polite">'+safe(genreMessage())+'</p></li>';
+  let html='<li class="insight"><h2>Your music genres</h2><p class="insight-note">Classified '+classified+' of '+artists.length+' artists · '+automatic+' Spotify genre-tagged · '+detected+' automatically classified · '+manual+' manually labelled. Genres are artist classifications, not exact listening percentages.</p><p class="insight-note" id="genre-scan-status" aria-live="polite">'+safe(genreMessage())+'</p></li>';
   if(genres.length){
     const max=genres[0][1];
     html+=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
@@ -275,7 +356,7 @@ async function scanGenres(artists){
   if(genreScanRunning)return;
   const range=state.range;
   genreScanRunning=true;genreScanRange=range;
-  const cache=mbCache(), now=Date.now();
+  const cache=genreCache();
   const pending=artists.filter(a=>!(a.genres?.length) && !taggedGenres()[a.id] &&
     !validGenreCache(cache[a.id]));
   genreProgress.done=0;genreProgress.total=pending.length;genreProgress.found=0;genreProgress.failed=0;genreProgress.unmatched=0;
