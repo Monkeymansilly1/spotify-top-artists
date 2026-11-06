@@ -114,6 +114,9 @@ const mbKey=()=> "spotify-genre-mb-v2:"+(accountId||"anonymous");
 function mbCache(){try{const v=JSON.parse(localStorage.getItem(mbKey())||"{}");return v&&typeof v==="object"?v:{}}catch(e){return {}}}
 function saveMbCache(value){try{localStorage.setItem(mbKey(),JSON.stringify(value))}catch(e){/* storage disabled */}}
 const mbGenreAliases=[
+  [/\bhip hop music\b/i,"Hip-Hop"],
+  [/\bgrime music\b/i,"Grime"],
+  [/\bdrill music\b/i,"Drill"],
   [/jump.?up|jump up drum|jump-up drum/i,"Jump-up DnB"],
   [/liquid (drum|dnb)|liquid funk/i,"Liquid DnB"],
   [/jungle/i,"Jungle"],
@@ -279,7 +282,7 @@ async function inferArtistGenre(artist){
   }
   const picked=chooseGenre(votes);
   const result={...picked,time:Date.now(),errors};
-  // Do not freeze a network outage or partial data for 30 days.
+  // Network failures should retry on a later visit, not freeze a partial result.
   if(errors && !result.genre){return result;}
   cache[artist.id]=result;saveGenreCache(cache);
   return result;
@@ -334,13 +337,23 @@ function drawGenres(artists){
     const max=genres[0][1];
     html+=genres.map((g,i)=>'<li class="genre"><span class="rank">'+(i+1)+'</span><div class="gbody"><b>'+safe(titleCase(g[0]))+'</b><div class="bar"><i style="width:'+(g[1]/max*100)+'%"></i></div></div><span class="gcount">'+g[1]+' artists</span></li>').join("");
   }else html+='<li class="insight-note">No supported genre tags yet. Automatic classification is running when connected, and unrecognised artists stay unclassified.</li>';
+  html+='<li class="insight"><h2>Last.fm source</h2><p class="insight-note">MusicBrainz, Wikipedia and Wikidata work without a key. To add Last.fm artist tags, enter your own Last.fm API key. The key stays in this browser tab and is only sent to Last.fm; it is never uploaded to your GitHub repo. Do not use a private account password.</p><div class="wrapped-controls"><input id="lastfm-key-input" type="password" autocomplete="off" placeholder="Optional Last.fm API key" value="'+safe(lastFmKey())+'"><button id="lastfm-key-save" type="button">Save key and recheck genres</button></div></li>';
   html+='<li class="insight genre-editor"><h2>Correct a classification</h2><p class="insight-note">Optional: override any automatic result. Your changes are saved privately in this browser.</p><div class="genre-picker-list">'+artists.map(a=>{
     const img=a.images?.[2]?.url||a.images?.[0]?.url||"";
     const source=inferred[a.id]?.genre || (a.genres?.length ? a.genres[0] : "");
-    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+safe(source ? "Auto: "+source : "Not classified")+'</option>'+
+    const via=inferred[a.id]?.source || "";
+    return '<label class="genre-pick"><img src="'+safe(img)+'" alt=""><span>'+safe(a.name)+'</span><select data-artist-id="'+safe(a.id)+'" aria-label="Genre for '+safe(a.name)+'"><option value="">'+safe(source ? "Auto: "+source+(via?" ("+via+")":"") : "Not classified")+'</option>'+
     GENRE_OPTIONS.map(g=>'<option value="'+safe(g)+'"'+(custom[a.id]===g?' selected':'')+'>'+safe(g)+'</option>').join("")+'</select></label>';
   }).join("")+'</div><button id="clear-genre-tags" type="button">Clear my corrections</button></li>';
   el.innerHTML=html;
+  document.querySelector("#lastfm-key-save").onclick=()=>{
+    const key=document.querySelector("#lastfm-key-input").value.trim();
+    if(key)sessionStorage.setItem("soundprint-lastfm-key",key);
+    else sessionStorage.removeItem("soundprint-lastfm-key");
+    localStorage.removeItem(genreCacheVersion());
+    if(!genreScanRunning)void renderGenres().catch(e=>err(e.message));
+    else { const node=document.querySelector("#genre-scan-status");if(node)node.textContent="Key saved. New source will be used for remaining artists; refresh the tab to rescan all."; }
+  };
   el.querySelectorAll("select[data-artist-id]").forEach(select=>select.addEventListener("change",()=>{
     const values=taggedGenres();
     if(select.value)values[select.dataset.artistId]=select.value;
